@@ -1,0 +1,22 @@
+[project]
+name = "base-kaggle-comp"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "boto3>=1.42.61",
+    "ipykernel>=7.2.0",
+    "kagglehub>=1.0.0",
+    "matplotlib>=3.10.0",
+    "mlflow==3.9.0",
+    "numpy>=1.26.4,<2",
+    "optuna>=4.7.0",
+    "pandas>=2.3.3",
+    "psycopg2-binary>=2.9.11",
+    "python-dotenv>=1.2.2",
+    "scikit-learn>=1.8.0",
+    "scipy>=1.17.1",
+    "setuptools>=69.0.0",
+    "xgboost>=3.2.0",
+]
