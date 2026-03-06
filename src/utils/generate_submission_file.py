@@ -25,9 +25,11 @@ def generate_submission_file(
     output_dir = Path(tempfile.mkdtemp())
     output_path = output_dir / filename
 
-    submission = pd.DataFrame({
-        id_column: test_data[id_column],
-        target_column: predictions,
-    })
+    submission = pd.DataFrame(
+        {
+            id_column: test_data[id_column],
+            target_column: predictions,
+        }
+    )
     submission.to_csv(output_path, index=False)
     return output_path

@@ -9,21 +9,11 @@ import mlflow.sklearn
 import numpy as np
 import optuna
 from dotenv import load_dotenv
-from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    PrecisionRecallDisplay,
-    RocCurveDisplay,
-    accuracy_score,
-    f1_score,
-    get_scorer,
-    log_loss,
-    mean_absolute_error,
-    mean_squared_error,
-    precision_score,
-    r2_score,
-    recall_score,
-    roc_auc_score,
-)
+from sklearn.metrics import (ConfusionMatrixDisplay, PrecisionRecallDisplay,
+                             RocCurveDisplay, accuracy_score, f1_score,
+                             get_scorer, log_loss, mean_absolute_error,
+                             mean_squared_error, precision_score, r2_score,
+                             recall_score, roc_auc_score)
 from sklearn.model_selection import cross_val_score
 
 matplotlib.use("Agg")
@@ -224,9 +214,7 @@ class BaseModel(ABC):
     def _log_optuna_plots(self, study, plots_dir: Path):
         try:
             from optuna.visualization.matplotlib import (
-                plot_optimization_history,
-                plot_param_importances,
-            )
+                plot_optimization_history, plot_param_importances)
 
             ax = plot_optimization_history(study)
             ax.figure.savefig(

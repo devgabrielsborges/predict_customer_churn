@@ -14,7 +14,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.impute import KNNImputer, SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
 
 
 def preprocess_data(data: pd.DataFrame, target_column: str | None = None):
@@ -23,32 +23,42 @@ def preprocess_data(data: pd.DataFrame, target_column: str | None = None):
     # FIXME add data transformation here if needed
     X = data.drop(columns=[target_column, id_column], errors="ignore")
     # FIXME change it as needed
-    y = data[target_column].map({"Presence": 1, "Absence": 0}).astype("uint8")
+    y = data[target_column].map({"Yes": 1, "No": 0}).astype("uint8")
 
     numerical_columns = X.select_dtypes(include=["int64", "float64"]).columns
-    categorical_columns = X.select_dtypes(
-        include=["object", "category", "bool", "string"]
-    ).columns
-
+    nominal_columns = X.select_dtypes(include=["object", "bool", "string"]).columns
+    ordinal_columns = X.select_dtypes(include=["category"]).columns
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42
     )
 
     numerical_transformer = Pipeline(
-        steps=[("imputer", KNNImputer(n_neighbors=5)), ("scaler", StandardScaler())]
+        steps=[
+            ("imputer", KNNImputer(n_neighbors=5)),
+            ("scaler", StandardScaler())
+        ]
     )
 
-    categorical_transformer = Pipeline(
+    nominal_transformer = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="most_frequent")),
             ("onehot", OneHotEncoder(handle_unknown="ignore")),
         ]
     )
-
+    ordinal_transformer = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            (
+                "ordinal",
+                OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1),
+            ),
+        ]
+    )
     preprocessor = ColumnTransformer(
         transformers=[
             ("num", numerical_transformer, numerical_columns),
-            ("cat", categorical_transformer, categorical_columns),
+            ("nom", nominal_transformer, nominal_columns),
+            ("ord", ordinal_transformer, ordinal_columns),
         ]
     )
 
@@ -77,9 +87,7 @@ def preprocess_data(data: pd.DataFrame, target_column: str | None = None):
     submission_test_path = raw_dir / "test.csv"
     if submission_test_path.exists():
         submission_data = pd.read_csv(submission_test_path)
-        X_submission = submission_data.drop(
-            columns=[target_column], errors="ignore"
-        )
+        X_submission = submission_data.drop(columns=[target_column], errors="ignore")
         X_submission_features = X_submission.drop(columns=[id_column], errors="ignore")
         X_submission_preprocessed = preprocessor.transform(X_submission_features)
         X_sub_out = (

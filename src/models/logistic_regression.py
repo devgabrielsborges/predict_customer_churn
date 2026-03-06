@@ -15,7 +15,7 @@ class LogisticRegressionModel(BaseModel):
 
     def build_model(self, params: dict | None = None):
         params = params or {}
-        return LogisticRegression( solver="saga", **params)
+        return LogisticRegression(solver="saga", **params)
 
     def suggest_params(self, trial: optuna.Trial) -> dict:
         return {
