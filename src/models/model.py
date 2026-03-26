@@ -9,9 +9,12 @@ import mlflow.sklearn
 import numpy as np
 import optuna
 from dotenv import load_dotenv
+from scipy import stats
+from sklearn.calibration import CalibrationDisplay
 from sklearn.metrics import (ConfusionMatrixDisplay, PrecisionRecallDisplay,
-                             RocCurveDisplay, accuracy_score, f1_score,
-                             get_scorer, log_loss, mean_absolute_error,
+                             RocCurveDisplay, accuracy_score,
+                             classification_report, f1_score, get_scorer,
+                             log_loss, mean_absolute_error,
                              mean_squared_error, precision_score, r2_score,
                              recall_score, roc_auc_score)
 from sklearn.model_selection import cross_val_score
@@ -166,9 +169,9 @@ class BaseModel(ABC):
         fig.savefig(plots_dir / "confusion_matrix.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
+        unique_labels = np.unique(y_true)
+
         if y_proba is not None:
-            # Detect positive label for string/non-binary targets
-            unique_labels = np.unique(y_true)
             pos_label = unique_labels[-1] if len(unique_labels) == 2 else None
 
             fig, ax = plt.subplots(figsize=(8, 6))
@@ -188,6 +191,111 @@ class BaseModel(ABC):
                 plots_dir / "precision_recall_curve.png", dpi=150, bbox_inches="tight"
             )
             plt.close(fig)
+
+            if len(unique_labels) == 2:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                CalibrationDisplay.from_predictions(
+                    y_true, y_proba, n_bins=10, ax=ax, pos_label=pos_label,
+                    name=self.model_name,
+                )
+                ax.set_title(f"{self.model_name} — Calibration Curve")
+                fig.savefig(
+                    plots_dir / "calibration_curve.png", dpi=150, bbox_inches="tight"
+                )
+                plt.close(fig)
+
+        labels, actual_counts = np.unique(y_true, return_counts=True)
+        pred_labels, pred_counts = np.unique(y_pred, return_counts=True)
+        pred_count_map = dict(zip(pred_labels, pred_counts))
+        pred_counts_aligned = np.array([pred_count_map.get(l, 0) for l in labels])
+
+        x = np.arange(len(labels))
+        width = 0.35
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.bar(x - width / 2, actual_counts, width, label="Actual")
+        ax.bar(x + width / 2, pred_counts_aligned, width, label="Predicted")
+        ax.set_xlabel("Class")
+        ax.set_ylabel("Count")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+        ax.set_title(f"{self.model_name} — Class Distribution")
+        fig.savefig(
+            plots_dir / "class_distribution.png", dpi=150, bbox_inches="tight"
+        )
+        plt.close(fig)
+
+    def _log_extended_classification_plots(
+        self, y_true, y_pred, y_proba, plots_dir: Path
+    ):
+        report = classification_report(y_true, y_pred, output_dict=True)
+        class_labels = [k for k in report if k not in (
+            "accuracy", "macro avg", "weighted avg",
+        )]
+        precisions = [report[c]["precision"] for c in class_labels]
+        recalls = [report[c]["recall"] for c in class_labels]
+        f1s = [report[c]["f1-score"] for c in class_labels]
+
+        x = np.arange(len(class_labels))
+        width = 0.25
+        fig, ax = plt.subplots(figsize=(max(8, len(class_labels) * 1.2), 6))
+        ax.bar(x - width, precisions, width, label="Precision")
+        ax.bar(x, recalls, width, label="Recall")
+        ax.bar(x + width, f1s, width, label="F1-Score")
+        ax.set_xlabel("Class")
+        ax.set_ylabel("Score")
+        ax.set_xticks(x)
+        ax.set_xticklabels(class_labels, rotation=45, ha="right")
+        ax.set_ylim(0, 1.05)
+        ax.legend()
+        ax.set_title(f"{self.model_name} — Per-Class Metrics")
+        fig.savefig(
+            plots_dir / "per_class_metrics.png", dpi=150, bbox_inches="tight"
+        )
+        plt.close(fig)
+
+        if y_proba is not None:
+            unique_labels = np.unique(y_true)
+
+            if y_proba.ndim == 1 and len(unique_labels) == 2:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                for label in unique_labels:
+                    mask = y_true == label
+                    ax.hist(
+                        y_proba[mask], bins=30, alpha=0.6,
+                        label=f"Class {label}", edgecolor="k",
+                    )
+                ax.set_xlabel("Predicted Probability")
+                ax.set_ylabel("Count")
+                ax.legend()
+                ax.set_title(
+                    f"{self.model_name} — Predicted Probability Distribution"
+                )
+                fig.savefig(
+                    plots_dir / "probability_histogram.png",
+                    dpi=150, bbox_inches="tight",
+                )
+                plt.close(fig)
+
+                pos = unique_labels[-1]
+                y_binary = (y_true == pos).astype(int)
+                sorted_indices = np.argsort(-y_proba)
+                y_sorted = y_binary[sorted_indices]
+                cumulative_gains = np.cumsum(y_sorted) / y_sorted.sum()
+                fractions = np.arange(1, len(y_sorted) + 1) / len(y_sorted)
+
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.plot(fractions, cumulative_gains, label="Model", linewidth=2)
+                ax.plot([0, 1], [0, 1], "r--", label="Random", linewidth=1)
+                ax.set_xlabel("Fraction of Population")
+                ax.set_ylabel("Fraction of Positives Captured")
+                ax.legend()
+                ax.set_title(f"{self.model_name} — Cumulative Gains")
+                fig.savefig(
+                    plots_dir / "cumulative_gains.png",
+                    dpi=150, bbox_inches="tight",
+                )
+                plt.close(fig)
 
     def _log_regression_plots(self, y_true, y_pred, plots_dir: Path):
         fig, ax = plt.subplots(figsize=(8, 6))
@@ -213,6 +321,75 @@ class BaseModel(ABC):
         fig.savefig(plots_dir / "residuals.png", dpi=150, bbox_inches="tight")
         plt.close(fig)
 
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.hist(residuals, bins=30, edgecolor="k", alpha=0.7, density=True)
+        kde_x = np.linspace(residuals.min(), residuals.max(), 200)
+        ax.plot(kde_x, stats.gaussian_kde(residuals)(kde_x), color="r", linewidth=2)
+        ax.set_xlabel("Residual")
+        ax.set_ylabel("Density")
+        ax.set_title(f"{self.model_name} — Residual Distribution")
+        fig.savefig(
+            plots_dir / "residual_histogram.png", dpi=150, bbox_inches="tight"
+        )
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        stats.probplot(residuals, dist="norm", plot=ax)
+        ax.set_title(f"{self.model_name} — Q-Q Plot of Residuals")
+        fig.savefig(plots_dir / "qq_plot.png", dpi=150, bbox_inches="tight")
+        plt.close(fig)
+
+    def _log_extended_regression_plots(self, y_true, y_pred, plots_dir: Path):
+        if hasattr(self.model, "feature_importances_"):
+            importances = self.model.feature_importances_
+            n_features = len(importances)
+            top_n = min(20, n_features)
+            indices = np.argsort(importances)[-top_n:]
+            fig, ax = plt.subplots(figsize=(8, max(6, top_n * 0.35)))
+            ax.barh(
+                range(top_n), importances[indices],
+                align="center", edgecolor="k", alpha=0.7,
+            )
+            ax.set_yticks(range(top_n))
+            ax.set_yticklabels([f"Feature {i}" for i in indices])
+            ax.set_xlabel("Importance")
+            ax.set_title(f"{self.model_name} — Feature Importance (Top {top_n})")
+            fig.savefig(
+                plots_dir / "feature_importance.png", dpi=150, bbox_inches="tight"
+            )
+            plt.close(fig)
+
+        abs_error = np.abs(y_true - y_pred)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        scatter = ax.scatter(
+            y_true, abs_error, alpha=0.5, edgecolors="k", linewidths=0.3,
+            c=abs_error, cmap="YlOrRd",
+        )
+        fig.colorbar(scatter, ax=ax, label="Absolute Error")
+        ax.set_xlabel("Actual Value")
+        ax.set_ylabel("Absolute Error")
+        ax.set_title(f"{self.model_name} — Prediction Error by Magnitude")
+        fig.savefig(
+            plots_dir / "prediction_error_magnitude.png",
+            dpi=150, bbox_inches="tight",
+        )
+        plt.close(fig)
+
+        residuals = y_true - y_pred
+        std_residuals = residuals / (np.std(residuals) + 1e-12)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.scatter(
+            y_pred, np.sqrt(np.abs(std_residuals)),
+            alpha=0.5, edgecolors="k", linewidths=0.3,
+        )
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("√|Standardized Residuals|")
+        ax.set_title(f"{self.model_name} — Scale-Location")
+        fig.savefig(
+            plots_dir / "scale_location.png", dpi=150, bbox_inches="tight"
+        )
+        plt.close(fig)
+
     def _log_optuna_plots(self, study, plots_dir: Path):
         try:
             from optuna.visualization.matplotlib import (
@@ -232,6 +409,42 @@ class BaseModel(ABC):
                 plt.close(ax.figure)
         except Exception:
             pass
+
+        if LOG_ALL_METRICS and len(study.trials) > 1:
+            try:
+                from optuna.visualization.matplotlib import (
+                    plot_contour, plot_parallel_coordinate, plot_slice)
+
+                ax = plot_parallel_coordinate(study)
+                ax.figure.savefig(
+                    plots_dir / "parallel_coordinate.png",
+                    dpi=150, bbox_inches="tight",
+                )
+                plt.close(ax.figure)
+
+                ax = plot_slice(study)
+                if isinstance(ax, np.ndarray):
+                    fig = ax.flat[0].figure
+                else:
+                    fig = ax.figure
+                fig.savefig(
+                    plots_dir / "slice_plot.png", dpi=150, bbox_inches="tight"
+                )
+                plt.close(fig)
+
+                if len(study.best_params) >= 2:
+                    ax = plot_contour(study)
+                    if isinstance(ax, np.ndarray):
+                        fig = ax.flat[0].figure
+                    else:
+                        fig = ax.figure
+                    fig.savefig(
+                        plots_dir / "contour_plot.png",
+                        dpi=150, bbox_inches="tight",
+                    )
+                    plt.close(fig)
+            except Exception:
+                pass
 
     def _generate_and_log_submission(self):
         submission_path = self.data_dir / "X_submission_preprocessed.npy"
@@ -265,8 +478,16 @@ class BaseModel(ABC):
 
             if self.task_type == "classification":
                 self._log_classification_plots(y_true, y_pred, y_proba, plots_dir)
+                if LOG_ALL_METRICS:
+                    self._log_extended_classification_plots(
+                        y_true, y_pred, y_proba, plots_dir
+                    )
             else:
                 self._log_regression_plots(y_true, y_pred, plots_dir)
+                if LOG_ALL_METRICS:
+                    self._log_extended_regression_plots(
+                        y_true, y_pred, plots_dir
+                    )
 
             self._log_optuna_plots(study, plots_dir)
 
