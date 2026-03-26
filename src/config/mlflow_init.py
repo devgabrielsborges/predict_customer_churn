@@ -13,9 +13,12 @@ def init_mlflow():
     tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
     mlflow.set_tracking_uri(tracking_uri)
 
-    competition = os.getenv("KAGGLE_COMPETITION_NAME", "default")
-    target = os.getenv("TARGET_COLUMN", "target")
-    experiment_name = f"{competition}/{target}"
+    experiment_name = os.getenv("EXPERIMENT_NAME", "default")
+    client = mlflow.MlflowClient()
+    experiment = client.get_experiment_by_name(experiment_name)
+
+    if experiment is not None and experiment.lifecycle_stage == "deleted":
+        client.restore_experiment(experiment.experiment_id)
 
     mlflow.set_experiment(experiment_name)
     mlflow.enable_system_metrics_logging()
