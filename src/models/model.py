@@ -26,6 +26,7 @@ load_dotenv(override=True)
 
 METRIC = os.getenv("METRIC", "accuracy")
 LOG_ALL_METRICS = os.getenv("LOG_ALL_METRICS", "False").lower() in ("true", "1", "yes")
+DEVICE = os.getenv("DEVICE", "cpu").lower()
 
 SKLEARN_SCORING = {
     "accuracy": "accuracy",
@@ -82,6 +83,7 @@ class BaseModel(ABC):
         self.best_params: dict | None = None
         self.n_trials = n_trials
         self.task_type = os.getenv("TASK_TYPE", "classification")
+        self.device = DEVICE
         self.metric = METRIC
         self.scoring = SKLEARN_SCORING.get(self.metric, self.metric)
         self.direction = METRIC_DIRECTION.get(self.metric, "maximize")
@@ -276,6 +278,7 @@ class BaseModel(ABC):
         with mlflow.start_run(run_name=self.model_name):
             mlflow.set_tag("model_type", self.model_name)
             mlflow.set_tag("task_type", self.task_type)
+            mlflow.set_tag("device", self.device)
             mlflow.log_param("metric", self.metric)
             mlflow.log_param("n_trials", self.n_trials)
 
