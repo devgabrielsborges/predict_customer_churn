@@ -17,12 +17,81 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, StandardScaler
 
 
+def _engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    collapse_cols = [
+        "MultipleLines", "OnlineSecurity", "OnlineBackup",
+        "DeviceProtection", "TechSupport", "StreamingTV", "StreamingMovies",
+    ]
+    for col in collapse_cols:
+        if col in df.columns:
+            df[col] = df[col].replace(
+                {"No internet service": "No", "No phone service": "No"}
+            )
+
+    if "TotalCharges" in df.columns:
+        df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
+
+    service_cols = [
+        "PhoneService", "MultipleLines", "InternetService",
+        "OnlineSecurity", "OnlineBackup", "DeviceProtection",
+        "TechSupport", "StreamingTV", "StreamingMovies",
+    ]
+    present = [c for c in service_cols if c in df.columns]
+    df["num_services"] = df[present].apply(
+        lambda r: (r == "Yes").sum() + (r == "DSL").sum() + (r == "Fiber optic").sum(),
+        axis=1,
+    )
+
+    addon_cols = [c for c in ["OnlineSecurity", "OnlineBackup", "DeviceProtection", "TechSupport"] if c in df.columns]
+    df["num_addons"] = df[addon_cols].apply(lambda r: (r == "Yes").sum(), axis=1)
+
+    streaming_cols = [c for c in ["StreamingTV", "StreamingMovies"] if c in df.columns]
+    df["num_streaming"] = df[streaming_cols].apply(lambda r: (r == "Yes").sum(), axis=1)
+
+    df["avg_charge_per_month"] = df["TotalCharges"] / df["tenure"].replace(0, np.nan)
+    df["avg_charge_per_month"] = df["avg_charge_per_month"].fillna(df["MonthlyCharges"])
+
+    df["charge_per_service"] = df["MonthlyCharges"] / df["num_services"].replace(0, np.nan)
+    df["charge_per_service"] = df["charge_per_service"].fillna(0)
+
+    df["log_tenure"] = np.log1p(df["tenure"])
+    df["log_total_charges"] = np.log1p(df["TotalCharges"])
+
+    df["tenure_bin"] = pd.cut(
+        df["tenure"],
+        bins=[0, 6, 12, 24, 48, 72, np.inf],
+        labels=["0-6m", "6-12m", "1-2y", "2-4y", "4-6y", "6y+"],
+    ).astype(str)
+
+    df["monthly_to_total_ratio"] = df["MonthlyCharges"] / df["TotalCharges"].replace(0, np.nan)
+    df["monthly_to_total_ratio"] = df["monthly_to_total_ratio"].fillna(1)
+
+    df["is_new_customer"] = (df["tenure"] <= 6).astype(int)
+    auto_methods = ["Bank transfer (automatic)", "Credit card (automatic)"]
+    df["auto_pay"] = df["PaymentMethod"].isin(auto_methods).astype(int)
+    df["has_internet"] = (df["InternetService"] != "No").astype(int)
+    df["has_fiber"] = (df["InternetService"] == "Fiber optic").astype(int)
+    df["partner_and_dependents"] = (
+        (df["Partner"] == "Yes") & (df["Dependents"] == "Yes")
+    ).astype(int)
+    df["alone_senior"] = (
+        (df["SeniorCitizen"] == 1) & (df["Partner"] == "No") & (df["Dependents"] == "No")
+    ).astype(int)
+    df["month_to_month"] = (df["Contract"] == "Month-to-month").astype(int)
+    df["high_monthly"] = (df["MonthlyCharges"] > df["MonthlyCharges"].median()).astype(int)
+    df["new_and_month_to_month"] = (df["is_new_customer"] & df["month_to_month"]).astype(int)
+
+    return df
+
+
 def preprocess_data(data: pd.DataFrame, target_column: str | None = None):
     target_column = target_column or os.getenv("TARGET_COLUMN")
     id_column = os.getenv("ID_COLUMN", "id")
-    # FIXME add data transformation here if needed
+
+    data = _engineer_features(data)
+    data = data.dropna(subset=["TotalCharges"])
+
     X = data.drop(columns=[target_column, id_column], errors="ignore")
-    # FIXME change it as needed
     y = data[target_column].map({"Yes": 1, "No": 0}).astype("uint8")
 
     numerical_columns = X.select_dtypes(include=["int64", "float64"]).columns
@@ -86,7 +155,8 @@ def preprocess_data(data: pd.DataFrame, target_column: str | None = None):
     raw_dir = Path(os.getenv("DATA_RAW_DIR", "data/raw"))
     submission_test_path = raw_dir / "test.csv"
     if submission_test_path.exists():
-        submission_data = pd.read_csv(submission_test_path)
+        submission_data = _engineer_features(pd.read_csv(submission_test_path))
+        submission_data = submission_data.dropna(subset=["TotalCharges"])
         X_submission = submission_data.drop(columns=[target_column], errors="ignore")
         X_submission_features = X_submission.drop(columns=[id_column], errors="ignore")
         X_submission_preprocessed = preprocessor.transform(X_submission_features)

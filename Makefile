@@ -1,4 +1,4 @@
-.PHONY: help up down restart logs preprocess download train-% train-all clean
+.PHONY: help up down restart logs preprocess download train-% train-all clean train-ensemble optimize-ensemble
 
 help:
 	@echo "Infrastructure"
@@ -15,6 +15,10 @@ help:
 	@echo "Training (TASK_TYPE inferred from .env)"
 	@echo "  make train-<model>  Train a single model (e.g. make train-random_forest)"
 	@echo "  make train-all      Train all models for the current TASK_TYPE"
+	@echo ""
+	@echo "Ensemble"
+	@echo "  make train-ensemble     Full ensemble pipeline (Optuna + 20-fold)"
+	@echo "  make optimize-ensemble  Optuna optimisation only (saves best_config.json)"
 	@echo ""
 	@set -a && [ -f .env ] && . ./.env && set +a; \
 	echo "TASK_TYPE=$$TASK_TYPE  —  available models:"; \
@@ -51,6 +55,14 @@ train-all:
 		echo "\n========== Training $$model =========="; \
 		uv run --python 3.11 "$$f"; \
 	done
+
+train-ensemble:
+	@set -a && [ -f .env ] && . ./.env && set +a; \
+	uv run --python 3.11 src/ensemble/train.py
+
+optimize-ensemble:
+	@set -a && [ -f .env ] && . ./.env && set +a; \
+	uv run --python 3.11 src/ensemble/train.py --optimize-only
 
 clean:
 	docker compose down -v
